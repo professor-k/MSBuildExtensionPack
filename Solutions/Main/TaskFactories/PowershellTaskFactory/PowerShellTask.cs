@@ -5,6 +5,7 @@
 namespace MSBuild.ExtensionPack.TaskFactory
 {
     using System;
+    using System.Management.Automation;
     using System.Management.Automation.Runspaces;
     using Microsoft.Build.Framework;
     using Microsoft.Build.Utilities;
@@ -21,10 +22,43 @@ namespace MSBuild.ExtensionPack.TaskFactory
 
         internal PowerShellTask(string script)
         {
+            // ExecutionPolicy Bypass
+            InitialSessionState initial = InitialSessionState.CreateDefault();
+
+            // Replace PSAuthorizationManager with a null manager
+            // which ignores execution policy
+            initial.AuthorizationManager = new AuthorizationManager("Microsoft.PowerShell");
+
             this.pipeline = RunspaceFactory.CreateRunspace().CreatePipeline();
             this.pipeline.Commands.AddScript(script);
             this.pipeline.Runspace.Open();
             this.pipeline.Runspace.SessionStateProxy.SetVariable("log", this.Log);
+            this.pipeline.Output.DataReady += Output_DataReady;
+            this.pipeline.Error.DataReady += Error_DataReady;
+        }
+
+        private void Error_DataReady(object sender, EventArgs e)
+        {
+	        var error = sender as PipelineReader<object>;
+	        if (error != null)
+            {
+                while (error.Count > 0)
+                {
+                    Log.LogError(error.Read().ToString());
+                }
+            }
+        }
+
+        private void Output_DataReady(object sender, EventArgs e)
+        {
+	        var output = sender as PipelineReader<PSObject>;
+	        if (output != null)
+            {
+                while (output.Count > 0)
+                {
+                    Log.LogMessage(output.Read().ToString());
+                }
+            }
         }
 
         public object GetPropertyValue(TaskPropertyInfo property)
